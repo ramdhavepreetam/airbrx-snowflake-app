@@ -95,7 +95,7 @@ CLUSTER BY (d);
 CREATE OR REPLACE PROCEDURE app_schema.run_analysis(mode STRING)
   RETURNS STRING
   LANGUAGE PYTHON
-  RUNTIME_VERSION = '3.11'
+  RUNTIME_VERSION = '3.10'
   PACKAGES = ('snowflake-snowpark-python', 'requests')
   HANDLER = 'analysis.main'
   IMPORTS = ('/src/analysis.py',
