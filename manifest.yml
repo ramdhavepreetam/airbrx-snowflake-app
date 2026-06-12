@@ -7,7 +7,7 @@ version:
 
 artifacts:
   setup_script: setup.sql
-  default_streamlit: src/streamlit_app.py
+  default_streamlit: ui.main_app
   extension_code: true
 
 privileges:

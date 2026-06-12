@@ -7,6 +7,7 @@
 -- ============================================================
 CREATE OR ALTER VERSIONED SCHEMA app_schema;
 CREATE SCHEMA IF NOT EXISTS state;
+CREATE SCHEMA IF NOT EXISTS ui;
 
 -- ============================================================
 -- 2. External network access rule (api.airbrx.ai)
@@ -113,7 +114,14 @@ CREATE OR REPLACE PROCEDURE app_schema.run_analysis(mode STRING)
 -- ============================================================
 
 -- ============================================================
--- 6. App role + grants
+-- 6. Streamlit UI
+-- ============================================================
+CREATE OR REPLACE STREAMLIT ui.main_app
+  FROM 'src'
+  MAIN_FILE = 'streamlit_app.py';
+
+-- ============================================================
+-- 7. App role + grants
 -- ============================================================
 CREATE APPLICATION ROLE IF NOT EXISTS app_public;
 
@@ -121,3 +129,5 @@ GRANT USAGE ON SCHEMA state                              TO APPLICATION ROLE app
 GRANT SELECT ON ALL TABLES IN SCHEMA state               TO APPLICATION ROLE app_public;
 GRANT USAGE ON SCHEMA app_schema                         TO APPLICATION ROLE app_public;
 GRANT USAGE ON PROCEDURE app_schema.run_analysis(STRING) TO APPLICATION ROLE app_public;
+GRANT USAGE ON SCHEMA ui                                 TO APPLICATION ROLE app_public;
+GRANT USAGE ON STREAMLIT ui.main_app                     TO APPLICATION ROLE app_public;
