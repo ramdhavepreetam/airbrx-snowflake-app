@@ -1,0 +1,20 @@
+definition_version: "2"
+
+entities:
+  airbrx_cost_intelligence:
+    type: application
+    manifest: manifest.yml
+    artifacts:
+      - src: src/
+        dest: src/
+      - src: setup.sql
+        dest: setup.sql
+      - src: manifest.yml
+        dest: manifest.yml
+      - src: environment.yml
+        dest: environment.yml
+      - src: README.md
+        dest: README.md
+    identifier:
+      name: airbrx_cost_intelligence
+    deploy_root: deploy/
