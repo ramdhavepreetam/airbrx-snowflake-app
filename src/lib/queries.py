@@ -8,10 +8,10 @@ Key schema facts:
     query_text (string — the /* abx ... */ comment)
 
   SNOWFLAKE.ACCOUNT_USAGE.QUERY_ATTRIBUTION_HISTORY
-    query_id, credits_used_compute  — direct cost per query (no duration-share needed)
+    query_id, credits_attributed_compute  — direct cost per query (no duration-share needed)
 
   SNOWFLAKE.ACCOUNT_USAGE.METERING_HISTORY
-    service_name (warehouse_name), credits_used_compute, start_time, end_time
+    service_name (warehouse_name), credits_attributed_compute, start_time, end_time
 """
 
 LOOKBACK_DAYS = 30
@@ -22,8 +22,8 @@ WATERFALL = """
 SELECT
   DATE_TRUNC('DAY', a.start_time)::DATE             AS d,
   h.warehouse_name,
-  SUM(a.credits_used_compute)                       AS credits,
-  SUM(a.credits_used_compute) * {credit_rate_usd}   AS usd
+  SUM(a.credits_attributed_compute)                       AS credits,
+  SUM(a.credits_attributed_compute) * {credit_rate_usd}   AS usd
 FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_ATTRIBUTION_HISTORY a
 JOIN SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY h USING (query_id)
 WHERE a.start_time >= DATEADD('day', -{lookback_days}, CURRENT_DATE())
@@ -37,8 +37,8 @@ ATTRIBUTED_COST = """
 SELECT
   fh.ck,
   COUNT(*)                      AS execs,
-  SUM(a.credits_used_compute)   AS attributed_credits,
-  SUM(a.credits_used_compute) * {credit_rate_usd} AS attributed_usd
+  SUM(a.credits_attributed_compute)   AS attributed_credits,
+  SUM(a.credits_attributed_compute) * {credit_rate_usd} AS attributed_usd
 FROM state.fingerprint_history fh
 JOIN SNOWFLAKE.ACCOUNT_USAGE.QUERY_ATTRIBUTION_HISTORY a
   ON fh.query_id = a.query_id

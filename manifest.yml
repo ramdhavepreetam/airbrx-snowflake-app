@@ -9,3 +9,9 @@ artifacts:
   setup_script: setup.sql
   default_streamlit: src/streamlit_app.py
   extension_code: true
+
+privileges:
+  - IMPORTED PRIVILEGES ON SNOWFLAKE DB:
+      description: "Read ACCOUNT_USAGE query history and cost attribution views"
+  - EXECUTE TASK:
+      description: "Run the scheduled 2-hour analysis task"

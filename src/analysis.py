@@ -118,8 +118,8 @@ def _recompute_waterfall(session) -> None:
         SELECT
           DATE_TRUNC('DAY', a.start_time)::DATE           AS d,
           h.warehouse_name,
-          SUM(a.credits_used_compute)                     AS credits,
-          SUM(a.credits_used_compute) * {CREDIT_RATE_USD} AS usd,
+          SUM(a.credits_attributed_compute)                     AS credits,
+          SUM(a.credits_attributed_compute) * {CREDIT_RATE_USD} AS usd,
           'raw'                                           AS layer,
           CURRENT_TIMESTAMP()                             AS updated_at
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_ATTRIBUTION_HISTORY a
@@ -157,7 +157,7 @@ def _recompute_rule_effectiveness(session) -> None:
           (ck, rule_id, window, baseline_rate, observed, avoided, realized_usd, updated_at)
         WITH attributed AS (
           SELECT fh.ck,
-                 SUM(a.credits_used_compute) * {CREDIT_RATE_USD} AS attributed_usd,
+                 SUM(a.credits_attributed_compute) * {CREDIT_RATE_USD} AS attributed_usd,
                  COUNT(*)                                        AS execs
           FROM state.fingerprint_history fh
           JOIN SNOWFLAKE.ACCOUNT_USAGE.QUERY_ATTRIBUTION_HISTORY a
