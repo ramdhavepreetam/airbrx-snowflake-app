@@ -1,0 +1,27 @@
+manifest_version: 1
+
+version:
+  name: v1
+  label: "1.0.0"
+  comment: "Initial release — cost-optimization report from Snowflake ACCOUNT_USAGE"
+
+artifacts:
+  setup_script: setup.sql
+  readme: README.md
+  default_streamlit: src/streamlit_app.py
+  extension_code: true
+
+privileges:
+  - EXECUTE TASK
+  - EXECUTE MANAGED TASK
+  - IMPORTED PRIVILEGES ON SNOWFLAKE DB   # grants read on SNOWFLAKE.ACCOUNT_USAGE.*
+
+references:
+  - airbrx_api_key:
+      label: "Airbrx API Key"
+      description: >
+        A GENERIC_STRING secret holding your Airbrx API key.
+        Create with: CREATE SECRET airbrx_api_key TYPE=GENERIC_STRING SECRET_STRING='<key>';
+      object_type: SECRET
+      required_at_setup: true
+      register_callback: app_schema.register_reference
