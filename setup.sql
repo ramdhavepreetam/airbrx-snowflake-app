@@ -3,39 +3,35 @@
 -- Creates all state tables, the analysis stored procedure, and the scheduled task.
 
 -- ============================================================
--- 1. Application schema
+-- 1. Application schemas
 -- ============================================================
-CREATE SCHEMA IF NOT EXISTS app_schema;
+CREATE OR ALTER VERSIONED SCHEMA app_schema;
 CREATE SCHEMA IF NOT EXISTS state;
 
 -- ============================================================
 -- 2. External network access rule (api.airbrx.ai)
+--    Network rule is schema-scoped; EAI is granted by account admin post-install.
 -- ============================================================
-CREATE OR REPLACE NETWORK RULE airbrx_api_rule
-  MODE         = EGRESS
-  TYPE         = HOST_PORT
-  VALUE_LIST   = ('api.airbrx.ai:443');
-
-CREATE OR REPLACE EXTERNAL ACCESS INTEGRATION airbrx_api_access
-  ALLOWED_NETWORK_RULES = (airbrx_api_rule)
-  ALLOWED_AUTHENTICATION_SECRETS = (reference('airbrx_api_key'))
-  ENABLED = TRUE;
+CREATE OR REPLACE NETWORK RULE app_schema.airbrx_api_rule
+  MODE       = EGRESS
+  TYPE       = HOST_PORT
+  VALUE_LIST = ('api.airbrx.ai:443');
 
 -- ============================================================
 -- 3. State tables
 -- ============================================================
 
--- Hourly ingest: one row per finished query that passed through fingerprinting.
+-- One row per finished query that passed through fingerprinting.
 -- Raw query_text is NEVER stored — only the hash (ck).
 CREATE TABLE IF NOT EXISTS state.fingerprint_history (
-  ck                  STRING        NOT NULL COMMENT 'Canonical query fingerprint (§6c)',
+  ck                  STRING        NOT NULL,
   query_id            STRING        NOT NULL,
-  d                   DATE          NOT NULL COMMENT 'Partition date = DATE(start_time)',
+  d                   DATE          NOT NULL,
   start_time          TIMESTAMP_TZ,
   warehouse_name      STRING,
-  total_elapsed_time  BIGINT        COMMENT 'Milliseconds',
-  route               STRING        COMMENT 'warehouse | cache_miss | smaller_wh | bypass | NULL',
-  rule_id             STRING        COMMENT 'Airbrx rule that matched, if any',
+  total_elapsed_time  BIGINT,
+  route               STRING,
+  rule_id             STRING,
   ingested_at         TIMESTAMP_TZ  NOT NULL
 )
 CLUSTER BY (d);
@@ -46,7 +42,7 @@ CREATE TABLE IF NOT EXISTS state.waterfall_daily (
   warehouse_name  STRING        NOT NULL,
   credits         FLOAT,
   usd             FLOAT,
-  layer           STRING        COMMENT 'raw | projected_saving | realized_saving',
+  layer           STRING,
   updated_at      TIMESTAMP_TZ  NOT NULL
 )
 CLUSTER BY (d);
@@ -65,10 +61,10 @@ CLUSTER BY (d);
 CREATE TABLE IF NOT EXISTS state.rule_effectiveness (
   ck            STRING       NOT NULL,
   rule_id       STRING,
-  window        STRING       NOT NULL COMMENT 'ISO date range: YYYY-MM-DD/YYYY-MM-DD',
-  baseline_rate FLOAT        COMMENT 'executions per day in pre-window',
-  observed      BIGINT       COMMENT 'actual executions in current window',
-  avoided       BIGINT       COMMENT 'max(0, baseline_rate * window_len - observed)',
+  window        STRING       NOT NULL,
+  baseline_rate FLOAT,
+  observed      BIGINT,
+  avoided       BIGINT,
   realized_usd  FLOAT,
   updated_at    TIMESTAMP_TZ NOT NULL
 );
@@ -76,9 +72,9 @@ CREATE TABLE IF NOT EXISTS state.rule_effectiveness (
 -- Airbrx rule definitions pulled from api.airbrx.ai.
 CREATE TABLE IF NOT EXISTS state.rules (
   rule_id      STRING       NOT NULL,
-  rule_type    STRING       COMMENT 'cache | bypass | smaller_wh',
+  rule_type    STRING,
   description  STRING,
-  config_json  VARIANT      COMMENT 'Rule config as JSON',
+  config_json  VARIANT,
   pulled_at    TIMESTAMP_TZ NOT NULL
 );
 
@@ -86,14 +82,14 @@ CREATE TABLE IF NOT EXISTS state.rules (
 CREATE TABLE IF NOT EXISTS state.sync_log (
   d             DATE         NOT NULL,
   ts            TIMESTAMP_TZ NOT NULL,
-  direction     STRING       NOT NULL COMMENT 'push_pull | pull_only | push_only',
+  direction     STRING       NOT NULL,
   payload_bytes BIGINT,
-  status        STRING       NOT NULL COMMENT 'ok | error: <message>'
+  status        STRING       NOT NULL
 )
 CLUSTER BY (d);
 
 -- ============================================================
--- 4. Analysis stored procedure
+-- 4. Analysis stored procedure (no external access until EAI is granted)
 -- ============================================================
 CREATE OR REPLACE PROCEDURE app_schema.run_analysis(mode STRING)
   RETURNS STRING
@@ -104,48 +100,24 @@ CREATE OR REPLACE PROCEDURE app_schema.run_analysis(mode STRING)
   IMPORTS = ('/src/analysis.py',
              '/src/lib/fingerprint.py',
              '/src/lib/tags.py',
-             '/src/lib/airbrx_client.py')
-  EXTERNAL_ACCESS_INTEGRATIONS = (airbrx_api_access)
-  SECRETS = ('airbrx_api_key' = reference('airbrx_api_key'));
+             '/src/lib/airbrx_client.py');
 
 -- ============================================================
--- 5. Scheduled task (every 2 hours — ACCOUNT_USAGE has 45-min latency)
+-- 5. Scheduled task
+--    Created post-install by the account admin (warehouse name varies per account):
+--    CREATE TASK state.airbrx_analysis_task
+--      SCHEDULE = 'USING CRON 0 */2 * * * UTC'
+--      WAREHOUSE = <your_warehouse>
+--    AS CALL airbrx_cost_intelligence.app_schema.run_analysis('all');
+--    ALTER TASK state.airbrx_analysis_task RESUME;
 -- ============================================================
-CREATE TASK IF NOT EXISTS app_schema.airbrx_analysis_task
-  SCHEDULE = 'USING CRON 0 */2 * * * UTC'
-  USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE = 'XSMALL'
-AS
-  CALL app_schema.run_analysis('all');
-
--- Tasks start suspended; customer resumes after setup.
--- ALTER TASK app_schema.airbrx_analysis_task RESUME;
 
 -- ============================================================
--- 6. Reference callback (for API key binding)
+-- 6. App role + grants
 -- ============================================================
-CREATE OR REPLACE PROCEDURE app_schema.register_reference(
-  ref_name STRING, operation STRING, ref_or_alias STRING
-)
-  RETURNS STRING
-  LANGUAGE SQL
-AS $$
-  BEGIN
-    CASE operation
-      WHEN 'ADD' THEN
-        SELECT SYSTEM$SET_REFERENCE(:ref_name, :ref_or_alias);
-      WHEN 'REMOVE' THEN
-        SELECT SYSTEM$REMOVE_REFERENCE(:ref_name);
-      WHEN 'CLEAR' THEN
-        SELECT SYSTEM$REMOVE_REFERENCE(:ref_name);
-    END CASE;
-    RETURN 'done';
-  END;
-$$;
+CREATE APPLICATION ROLE IF NOT EXISTS app_public;
 
--- ============================================================
--- 7. App role grants
--- ============================================================
-GRANT USAGE ON SCHEMA state           TO APPLICATION ROLE app_public;
-GRANT SELECT ON ALL TABLES IN SCHEMA state TO APPLICATION ROLE app_public;
-GRANT USAGE ON SCHEMA app_schema      TO APPLICATION ROLE app_public;
+GRANT USAGE ON SCHEMA state                              TO APPLICATION ROLE app_public;
+GRANT SELECT ON ALL TABLES IN SCHEMA state               TO APPLICATION ROLE app_public;
+GRANT USAGE ON SCHEMA app_schema                         TO APPLICATION ROLE app_public;
 GRANT USAGE ON PROCEDURE app_schema.run_analysis(STRING) TO APPLICATION ROLE app_public;

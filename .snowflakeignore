@@ -1,0 +1,10 @@
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.venv/
+deploy/
+output/
+.git/
+tests/
+docs/
+state/
