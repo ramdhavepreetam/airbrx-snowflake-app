@@ -101,10 +101,10 @@ CREATE OR REPLACE PROCEDURE app_schema.run_analysis(mode STRING)
   RUNTIME_VERSION = '3.11'
   PACKAGES = ('snowflake-snowpark-python', 'requests')
   HANDLER = 'analysis.main'
-  IMPORTS = ('@app_schema.app_stage/src/analysis.py',
-             '@app_schema.app_stage/src/lib/fingerprint.py',
-             '@app_schema.app_stage/src/lib/tags.py',
-             '@app_schema.app_stage/src/lib/airbrx_client.py')
+  IMPORTS = ('/src/analysis.py',
+             '/src/lib/fingerprint.py',
+             '/src/lib/tags.py',
+             '/src/lib/airbrx_client.py')
   EXTERNAL_ACCESS_INTEGRATIONS = (airbrx_api_access)
   SECRETS = ('airbrx_api_key' = reference('airbrx_api_key'));
 

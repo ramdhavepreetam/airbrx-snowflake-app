@@ -5,7 +5,7 @@ Key schema facts:
   SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
     query_id, query_text, user_name, warehouse_name, start_time, end_time,
     total_elapsed_time (ms), execution_status ('SUCCESS'|'FAIL'|'INCIDENT'),
-    query_tag (string — the /* abx ... */ comment)
+    query_text (string — the /* abx ... */ comment)
 
   SNOWFLAKE.ACCOUNT_USAGE.QUERY_ATTRIBUTION_HISTORY
     query_id, credits_used_compute  — direct cost per query (no duration-share needed)
@@ -51,9 +51,9 @@ ORDER BY attributed_usd DESC
 COVERAGE = """
 SELECT
   DATE_TRUNC('DAY', start_time)::DATE                       AS d,
-  COUNT_IF(query_tag ILIKE '/* abx %')                      AS gateway_routed,
+  COUNT_IF(query_text ILIKE '/* abx %')                      AS gateway_routed,
   COUNT(*)                                                  AS total,
-  DIV0(COUNT_IF(query_tag ILIKE '/* abx %'), COUNT(*))      AS coverage_ratio
+  DIV0(COUNT_IF(query_text ILIKE '/* abx %'), COUNT(*))      AS coverage_ratio
 FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
 WHERE start_time >= DATEADD('day', -{lookback_days}, CURRENT_DATE())
   AND execution_status = 'SUCCESS'
@@ -69,7 +69,7 @@ SELECT
   total_elapsed_time,
   start_time,
   query_text,
-  query_tag
+  query_text
 FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
 WHERE start_time > '{checkpoint_ts}'::TIMESTAMP_TZ
   AND execution_status = 'SUCCESS'

@@ -4,6 +4,10 @@ __pycache__/
 *.pyo
 *.egg-info/
 .pytest_cache/
+.venv/
+
+# Snowflake CLI deploy output
+deploy/
 
 # Secrets — never commit
 .env

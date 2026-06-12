@@ -10,13 +10,12 @@ Modes:
   sync      — push aggregates to api.airbrx.ai, pull rules
   all       — all three in order (default)
 """
-import base64
-import hashlib
 import logging
 import os
-import re
-import sys
 from datetime import datetime, timezone, timedelta
+
+from fingerprint import fingerprint
+from tags import parse_tag
 
 logger = logging.getLogger(__name__)
 
@@ -24,42 +23,6 @@ LOOKBACK_DAYS    = 30
 INSERT_BATCH     = 500
 CREDIT_RATE_USD  = float(os.environ.get("AIRBRX_CREDIT_RATE_USD", "3.00"))
 AIRBRX_API_URL   = os.environ.get("AIRBRX_API_URL", "https://api.airbrx.ai")
-
-# ---------------------------------------------------------------------------
-# Inlined fingerprint — SHARED CONTRACT with gateway (v=1)
-# ---------------------------------------------------------------------------
-_BLOCK_CMT  = re.compile(r"/\*.*?\*/", re.DOTALL)
-_LINE_CMT   = re.compile(r"--[^\n]*")
-_WHITESPACE = re.compile(r"\s+")
-_STR_LIT    = re.compile(r"'(?:[^'\\]|\\.)*'")
-_NUM_LIT    = re.compile(r"\b\d+(?:\.\d+)?\b")
-_ABX        = re.compile(r"^/\*\s*abx\s+(?P<kv>[^*]+)\*/", re.DOTALL)
-
-
-def _normalize(sql: str) -> str:
-    sql = _BLOCK_CMT.sub("", sql)
-    sql = _LINE_CMT.sub("", sql)
-    sql = sql.lower()
-    sql = _WHITESPACE.sub(" ", sql).strip()
-    sql = _STR_LIT.sub("?", sql)
-    sql = _NUM_LIT.sub("?", sql)
-    return sql
-
-
-def fingerprint(sql: str) -> str:
-    digest = hashlib.sha256(_normalize(sql).encode("utf-8")).digest()
-    return base64.b32encode(digest).decode("ascii").lower()[:16]
-
-
-def parse_tag(sql: str) -> dict | None:
-    # In Snowflake, the abx tag may come from query_tag column or query_text prefix
-    m = _ABX.match((sql or "").lstrip())
-    if not m:
-        return None
-    try:
-        return dict(kv.split("=", 1) for kv in m.group("kv").split())
-    except ValueError:
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +48,7 @@ def run_ingest(session) -> None:
 
     rows = session.sql(f"""
         SELECT query_id, warehouse_name, total_elapsed_time,
-               start_time, query_text, query_tag
+               start_time, query_text
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
         WHERE start_time > '{cp_str}'::TIMESTAMP_TZ
           AND execution_status = 'SUCCESS'
@@ -100,9 +63,9 @@ def run_ingest(session) -> None:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     records = []
     for r in rows:
-        # Tag may be in query_tag column (Snowflake sets this from the comment)
-        # or in query_text prefix — check both
-        tag_src = r["QUERY_TAG"] or r["QUERY_TEXT"] or ""
+        # The gateway prepends /* abx ... */ to query_text. Parse from there.
+        # query_tag is a session-level string (ALTER SESSION SET QUERY_TAG) — not used.
+        tag_src = r["QUERY_TEXT"] or ""
         tag     = parse_tag(tag_src)
         ck      = fingerprint(r["QUERY_TEXT"] or "")
         st      = r["START_TIME"]
@@ -174,9 +137,9 @@ def _recompute_coverage(session) -> None:
         INSERT INTO state.coverage_daily (d, gateway_routed, total, coverage_ratio, updated_at)
         SELECT
           DATE_TRUNC('DAY', start_time)::DATE                        AS d,
-          COUNT_IF(query_tag ILIKE '/* abx %')                       AS gateway_routed,
+          COUNT_IF(query_text ILIKE '/* abx %')                      AS gateway_routed,
           COUNT(*)                                                   AS total,
-          DIV0(COUNT_IF(query_tag ILIKE '/* abx %'), COUNT(*))       AS coverage_ratio,
+          DIV0(COUNT_IF(query_text ILIKE '/* abx %'), COUNT(*))       AS coverage_ratio,
           CURRENT_TIMESTAMP()                                        AS updated_at
         FROM SNOWFLAKE.ACCOUNT_USAGE.QUERY_HISTORY
         WHERE start_time >= DATEADD('day', -{LOOKBACK_DAYS}, CURRENT_DATE())
